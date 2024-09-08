@@ -145,11 +145,29 @@ namespace MultiDisplayTool.Properties {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Disable Auto SetPrimary Display.
+        /// </summary>
+        internal static string mainFormDisableAutoSetPrimary {
+            get {
+                return ResourceManager.GetString("mainFormDisableAutoSetPrimary", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Enable Auto Move.
         /// </summary>
         internal static string mainFormEnableAutoMove {
             get {
                 return ResourceManager.GetString("mainFormEnableAutoMove", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Enable Auto SetPrimary Display.
+        /// </summary>
+        internal static string mainFormEnableAutoSetPrimary {
+            get {
+                return ResourceManager.GetString("mainFormEnableAutoSetPrimary", resourceCulture);
             }
         }
         

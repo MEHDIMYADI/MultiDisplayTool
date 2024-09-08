@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Runtime.InteropServices;
+using System.Windows.Forms;
 
 /*
  * Copyright (c) 2024 Mehdi Dimyadi
@@ -68,7 +69,7 @@ namespace MultiDisplayTool
         // Public methods
         public static void StartMonitoring()
         {
-            if (_isMonitoring) return;
+            if (_isMonitoring || !Properties.Settings.Default.AutoMoveEnabled) return;
 
             _winEventDelegate = WinEventProc;
             _winEventHook = SetWinEventHook(
@@ -135,6 +136,18 @@ namespace MultiDisplayTool
                 // Move the window to the next monitor
                 Program.MoveWindowsToNextMonitor("Next");
                 // Minimize or remove console output in production
+            }
+        }
+
+        public static void CheckAndStartMonitoring(bool autoMoveEnabled)
+        {
+            if (autoMoveEnabled)
+            {
+                StartMonitoring();
+            }
+            else
+            {
+                StopMonitoring();
             }
         }
     }

@@ -147,8 +147,14 @@ Copyright © 2024 Mehdi Dimyadi</value>
   <data name="mainFormDisableAutoMove" xml:space="preserve">
     <value>Disable Auto Move</value>
   </data>
+  <data name="mainFormDisableAutoSetPrimary" xml:space="preserve">
+    <value>Disable Auto SetPrimary Display</value>
+  </data>
   <data name="mainFormEnableAutoMove" xml:space="preserve">
     <value>Enable Auto Move</value>
+  </data>
+  <data name="mainFormEnableAutoSetPrimary" xml:space="preserve">
+    <value>Enable Auto SetPrimary Display</value>
   </data>
   <data name="mainFormErrorLoadingSettings" xml:space="preserve">
     <value>Error loading settings: {0}</value>

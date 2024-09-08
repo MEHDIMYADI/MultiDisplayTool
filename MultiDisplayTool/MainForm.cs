@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Microsoft.Win32;
+using System;
 using System.Drawing;
 using System.IO;
 using System.Windows.Forms;
@@ -21,25 +22,32 @@ namespace MultiDisplayTool
 {
     public partial class MainForm : Form
     {
-
         private static NotifyIcon notifyIcon;
         private bool autoMoveEnabled;
-        private StartupManager startupManager;
+        private bool autoSetPrimaryDisplay;
+        private readonly StartupManager startupManager;
+        readonly bool silentModeDetect = false;
 
         public MainForm(bool silentMode)
         {
             startupManager = new StartupManager();
+            silentModeDetect = silentMode;
 
             this.Load += (s, e) =>
             {
+                LoadSettings();
                 this.Visible = false;
                 this.ShowInTaskbar = false;
                 this.WindowState = FormWindowState.Minimized;
                 InitializeTrayIcon(silentMode);
-                LoadSettings();
                 UpdateStartupMenuItem();
                 SetNotifyIconAlwaysVisible(); // icon is always visible
+
+                // Use CheckAndStartMonitoring to manage monitoring based on the updated autoMoveEnabled state
+                WindowMover.CheckAndStartMonitoring(autoMoveEnabled);
             };
+
+            SystemEvents.SessionSwitch += SystemEvents_SessionSwitch;
         }
 
         private void InitializeTrayIcon(bool silentMode)
@@ -50,7 +58,7 @@ namespace MultiDisplayTool
                 Icon = new Icon(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "Asset", "MultiDisplayToolNotify.ico")),
                 Visible = true,
                 Text = Properties.Resources.mainFormTitle,
-                ContextMenuStrip = CreateContextMenu(),
+                ContextMenuStrip = contextMenu,
                 BalloonTipText = Properties.Resources.mainFormBalloonTipText
             };
 
@@ -62,12 +70,15 @@ namespace MultiDisplayTool
 
             // Subscribe to the MouseClick event
             notifyIcon.MouseClick += NotifyIcon_MouseClick;
-
         }
 
         private ContextMenuStrip CreateContextMenu()
         {
             var contextMenu = new ContextMenuStrip();
+
+            // Subscribe to the Opening and Closed events
+            contextMenu.Opening += ContextMenu_Opening;
+            contextMenu.Closed += ContextMenu_Closed;
 
             // Add options to set primary display
             contextMenu.Items.Add(Properties.Resources.mainFormSetPrimaryDisplay, null, (sender, e) => Program.SetPrimaryDisplay());
@@ -77,6 +88,14 @@ namespace MultiDisplayTool
 
             // Move all windows to the next monitor
             contextMenu.Items.Add(Properties.Resources.mainFormMoveWindowsToNext, null, (sender, e) => Program.MoveWindowsToNextMonitor("Next"));
+
+            // Auto-move startup and shutdown windows item
+            var autoSetPrimaryItem = new ToolStripMenuItem
+            {
+                Text = autoSetPrimaryDisplay ? Properties.Resources.mainFormDisableAutoSetPrimary : Properties.Resources.mainFormEnableAutoSetPrimary
+            };
+            autoSetPrimaryItem.Click += (sender, e) => ToggleAutoSetPrimaryDisplayEntry();
+            contextMenu.Items.Add(autoSetPrimaryItem);
 
             // Auto-move windows item
             var autoMoveItem = new ToolStripMenuItem
@@ -103,39 +122,32 @@ namespace MultiDisplayTool
             return contextMenu;
         }
 
+        // Called when the context menu is about to open
+        private void ContextMenu_Opening(object sender, System.ComponentModel.CancelEventArgs e)
+        {
+            // Stop monitoring when the context menu is shown
+            WindowMover.CheckAndStartMonitoring(false);
+        }
+
+        // Called when the context menu is closed
+        private void ContextMenu_Closed(object sender, ToolStripDropDownClosedEventArgs e)
+        {
+            // Restart monitoring based on the current autoMoveEnabled state
+            WindowMover.CheckAndStartMonitoring(autoMoveEnabled);
+        }
+
         private void NotifyIcon_MouseClick(object sender, MouseEventArgs e)
         {
-            // Check if the left mouse button was clicked
             if (e.Button == MouseButtons.Left)
             {
                 Program.MoveWindowsToNextMonitor("Next");
             }
             else if (e.Button == MouseButtons.Right)
             {
-                // Stop monitoring when right-clicking
                 WindowMover.StopMonitoring();
-
-                // Restart monitoring after the context menu has been interacted with or a short delay
-                // This can be done in a separate method or after some user interaction
-                RestartWindowMoverMonitoring();
             }
         }
 
-        private void RestartWindowMoverMonitoring()
-        {
-            // Delay or logic to restart monitoring
-            // For demonstration, we'll use a delay
-            Timer restartTimer = new Timer();
-            restartTimer.Interval = 1000; // 1 second delay
-            restartTimer.Tick += (s, e) =>
-            {
-                restartTimer.Stop();
-                WindowMover.StartMonitoring(); // Restart monitoring
-            };
-            restartTimer.Start();
-        }
-
-        // Method to set the NotifyIcon to always be visible using Windows Registry
         private void SetNotifyIconAlwaysVisible()
         {
             try
@@ -145,21 +157,7 @@ namespace MultiDisplayTool
             }
             catch (Exception ex)
             {
-                MessageBox.Show(string.Format(Properties.Resources.mainFormErrorSavingSettings, ex.Message), "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
-        private void SaveSettings()
-        {
-            try
-            {
-                Properties.Settings.Default.AutoMoveEnabled = autoMoveEnabled;
-                Properties.Settings.Default.Save();
-                Console.WriteLine("Settings saved successfully.");
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(string.Format(Properties.Resources.mainFormErrorSavingSettings, ex.Message), "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"Error updating tray icon visibility: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -168,66 +166,75 @@ namespace MultiDisplayTool
             try
             {
                 autoMoveEnabled = Properties.Settings.Default.AutoMoveEnabled;
-                Console.WriteLine($"Settings loaded: AutoMoveEnabled = {autoMoveEnabled}");
-                if (autoMoveEnabled)
+                autoSetPrimaryDisplay = Properties.Settings.Default.AutoSetPrimaryDisplay;
+
+                Console.WriteLine($"Settings loaded: AutoMoveEnabled = {autoMoveEnabled}, AutoSetPrimaryDisplay = {autoSetPrimaryDisplay}");
+
+                if (autoSetPrimaryDisplay && silentModeDetect)
                 {
-                    // Start monitoring for new processes
-                    WindowMover.StartMonitoring();
+                    Program.SetPrimaryDisplay();
                 }
+
+                // Use CheckAndStartMonitoring to manage monitoring based on the autoMoveEnabled setting
+                WindowMover.CheckAndStartMonitoring(autoMoveEnabled);
             }
             catch (Exception ex)
             {
-                MessageBox.Show(string.Format(Properties.Resources.mainFormErrorLoadingSettings, ex.Message), "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"Error loading settings: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
-        // Method to show the About info when the "About" menu item is clicked
+        private void SystemEvents_SessionSwitch(object sender, SessionSwitchEventArgs e)
+        {
+            // Check if the session switch reason is a successful logon or unlock
+            if (e.Reason == SessionSwitchReason.SessionLogon || e.Reason == SessionSwitchReason.SessionUnlock)
+            {
+                if (autoSetPrimaryDisplay)
+                {
+                    Program.SetPrimaryDisplay();
+                }
+            }
+        }
+
         private void ShowAboutInfo(object sender, EventArgs e)
         {
-            // Stop monitoring when show about
-            WindowMover.StopMonitoring();
+            // Stop monitoring when showing the About form
+            WindowMover.CheckAndStartMonitoring(false);
 
             using (var aboutForm = new AboutForm())
             {
+                // Show the About form modally
                 aboutForm.ShowDialog();
             }
 
-            // Restart monitoring after the context menu has been interacted with or a short delay
-            // This can be done in a separate method or after some user interaction
-            RestartWindowMoverMonitoring();
+            // Restart monitoring based on the autoMoveEnabled state after closing the About form
+            WindowMover.CheckAndStartMonitoring(autoMoveEnabled);
         }
 
         private void ExitApplication(object sender, EventArgs e)
         {
-            notifyIcon.Visible = false; // Hide tray icon before exiting
-            WindowMover.StopMonitoring(); // Stop monitoring when the user presses a key
-            Application.Exit(); // Close the application
-        }
-
-        protected override void OnFormClosing(FormClosingEventArgs e)
-        {
-            notifyIcon.Visible = false; // Hide tray icon
-            WindowMover.StopMonitoring(); // Stop monitoring when the user presses a key
-            base.OnFormClosing(e);
+            notifyIcon.Visible = false;
+            WindowMover.StopMonitoring();
+            Application.Exit();
         }
 
         private void ToggleAutoMoveEntry()
         {
             autoMoveEnabled = !autoMoveEnabled;
-            SaveSettings();
+            Properties.Settings.Default.AutoMoveEnabled = autoMoveEnabled;
+            Properties.Settings.Default.Save();
 
-            if (autoMoveEnabled)
-            {
-                // Start monitoring for new processes
-                WindowMover.StartMonitoring();
-                UpdateStartupMenuItem();
-            }
-            else
-            {
-                // Stop monitoring when the user presses a key
-                WindowMover.StopMonitoring();
-                UpdateStartupMenuItem();
-            }
+            // Use CheckAndStartMonitoring to manage monitoring based on the updated autoMoveEnabled state
+            WindowMover.CheckAndStartMonitoring(autoMoveEnabled);
+            UpdateStartupMenuItem();
+        }
+
+        private void ToggleAutoSetPrimaryDisplayEntry()
+        {
+            autoSetPrimaryDisplay = !autoSetPrimaryDisplay;
+            Properties.Settings.Default.AutoSetPrimaryDisplay = autoSetPrimaryDisplay;
+            Properties.Settings.Default.Save();
+            UpdateStartupMenuItem();
         }
 
         private void ToggleStartupEntry()
@@ -235,23 +242,27 @@ namespace MultiDisplayTool
             if (startupManager.IsInStartup())
             {
                 startupManager.RemoveFromStartup();
-                UpdateStartupMenuItem();
             }
             else
             {
                 startupManager.AddToStartup();
-                UpdateStartupMenuItem();
             }
+            UpdateStartupMenuItem();
         }
 
         private void UpdateStartupMenuItem()
         {
-            if (notifyIcon.ContextMenuStrip.Items[3] is ToolStripMenuItem autoMoveItem)
+            if (notifyIcon.ContextMenuStrip.Items[3] is ToolStripMenuItem autoSetPrimaryItem)
+            {
+                autoSetPrimaryItem.Text = autoSetPrimaryDisplay ? Properties.Resources.mainFormDisableAutoSetPrimary : Properties.Resources.mainFormEnableAutoSetPrimary;
+            }
+
+            if (notifyIcon.ContextMenuStrip.Items[4] is ToolStripMenuItem autoMoveItem)
             {
                 autoMoveItem.Text = autoMoveEnabled ? Properties.Resources.mainFormDisableAutoMove : Properties.Resources.mainFormEnableAutoMove;
             }
 
-            if (notifyIcon.ContextMenuStrip.Items[4] is ToolStripMenuItem startupItem)
+            if (notifyIcon.ContextMenuStrip.Items[5] is ToolStripMenuItem startupItem)
             {
                 startupItem.Text = startupManager.IsInStartup() ? Properties.Resources.mainFormRemoveFromStartup : Properties.Resources.mainFormAddToStartup;
             }
